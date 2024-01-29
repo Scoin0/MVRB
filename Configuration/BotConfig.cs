@@ -1,4 +1,5 @@
-﻿using Newtonsoft.Json;
+﻿using MVRB.Models;
+using Newtonsoft.Json;
 using Serilog;
 
 namespace MVRB.Configuration
@@ -6,7 +7,7 @@ namespace MVRB.Configuration
     public class BotConfig
     {
         private readonly string _configDirectory = "configuration\\";
-        private readonly string _config = "configuration\\config.json";
+        private readonly string _configFileName = "configuration\\config.json";
 
         #region Global Settings
         public string Prefix { get; set; } = "!";
@@ -17,12 +18,17 @@ namespace MVRB.Configuration
         public string Token { get; set; } = string.Empty;
         #endregion
 
+        #region Guild Settings
+        public List<ulong> ConfiguredChannelIds { get; set; } = new List<ulong>();
+        public List<RoleTiers> RoleTiers { get; set; } = new List<RoleTiers>();
+        #endregion
+
         public async Task InitConfiguration()
         {
-            if (File.Exists(_config))
+            if (File.Exists(_configFileName))
             {
                 Log.Information("Loading configuration data...");
-                await LoadConfiguration();
+                await LoadConfigurationAsync();
             }
             else
             {
@@ -36,7 +42,7 @@ namespace MVRB.Configuration
             {
                 Directory.CreateDirectory(_configDirectory);
                 Log.Information("Configuration file not found. Creating one...");
-                using (File.Create(_config)) { }
+                File.Create(_configFileName).Dispose();
                 SaveConfiguration();
             }
             catch (IOException error)
@@ -45,24 +51,57 @@ namespace MVRB.Configuration
             }
         }
 
-        private async Task LoadConfiguration()
+        public void SaveConfiguration()
         {
-            var json = await File.ReadAllTextAsync(_config);
-            JsonConvert.PopulateObject(json, this);
-            Log.Information("Loaded configuration!");
+            File.WriteAllText(_configFileName, JsonConvert.SerializeObject(this, Formatting.Indented));
+        }
+
+        public void AddConfiguredChannelIds(ulong channelId)
+        {
+            if (ConfiguredChannelIds.Contains(channelId))
+            {
+                Log.Information("Channel with ID {channelId} already exists. Cannot add duplicate channel.", channelId);
+            }
+            else
+            {
+                ConfiguredChannelIds.Add(channelId);
+                SaveConfiguration();
+                Log.Information("Channel with ID {ChannelId} added successfully.", channelId);
+            }
+        }
+
+        public void RemoveConfiguredChannelIds(ulong channelId)
+        {
+            ConfiguredChannelIds.Remove(channelId);
             SaveConfiguration();
         }
 
-        public void SaveConfiguration()
+        public void AddRoleTier(ulong roleId, int requestLimit)
         {
-            using (StreamWriter file = File.CreateText(_config))
+            if (RoleTiers.Any(rt => rt.RoleId == roleId))
             {
-                JsonSerializer serializer = new()
-                {
-                    Formatting = Formatting.Indented
-                };
-                serializer.Serialize(file, this);
+                Log.Information("Role with ID {roleId} already exists. Cannot add duplicate role.", roleId);
             }
+            else
+            {
+                RoleTiers.Add(new RoleTiers { RoleId = roleId, RequestLimit = requestLimit });
+                SaveConfiguration();
+                Log.Information("Role with ID {roleId} added successfully.", roleId);
+            }
+        }
+
+        public void RemoveRoleTier(ulong roleId)
+        {
+            RoleTiers.RemoveAll(RoleTiers => RoleTiers.RoleId == roleId);
+            SaveConfiguration();
+        }
+
+        private async Task LoadConfigurationAsync()
+        {
+            var json = await File.ReadAllTextAsync(_configFileName);
+            JsonConvert.PopulateObject(json, this);
+            Log.Information("Loaded configuration!");
+            SaveConfiguration();
         }
     }
 }
