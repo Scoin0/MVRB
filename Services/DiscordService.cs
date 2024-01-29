@@ -2,53 +2,68 @@
 using Discord.WebSocket;
 using Microsoft.Extensions.DependencyInjection;
 using MVRB.Configuration;
-using Serilog;
 
 namespace MVRB.Services
 {
-    public class DiscordService
+    public class DiscordService : IDisposable
     {
+        private readonly CancellationTokenSource _cancellationTokenSource = new CancellationTokenSource();
         private readonly DiscordSocketClient _client;
         private readonly ServiceProvider _services;
         private readonly LoggingService _loggingService;
-        private BotConfig botConfig;
+        public BotConfig botConfig = new BotConfig();
 
         public DiscordService()
         {
             _services = ConfigureServices();
-            _client = _services.GetRequiredService<DiscordSocketClient>();
             _loggingService = _services.GetRequiredService<LoggingService>();
-            botConfig = new BotConfig();
+            _client = _services.GetRequiredService<DiscordSocketClient>();
         }
 
         public async Task InitAsync()
         {
-            Log.Logger = new LoggerConfiguration()
-                .MinimumLevel.Verbose()
-                .Enrich.FromLogContext()
-                .WriteTo.Console()
-                .CreateLogger();
+            await botConfig.InitConfiguration();
 
-            string discordToken = botConfig.Token;
-            if (string.IsNullOrWhiteSpace(discordToken))
-            {
-                throw new Exception("Token is missing from the config! Please enter the token.");
-            }
+            ValidateConfig();
 
             _client.Log += _loggingService.LogAsync;
 
-            await _client.LoginAsync(TokenType.Bot, discordToken);
+            await RunBotAsync();
+        }
+
+        public async Task RunBotAsync()
+        {
+            await _client.LoginAsync(TokenType.Bot, botConfig.Token);
             await _client.StartAsync();
 
-            // Block this task until program is closed.
-            await Task.Delay(Timeout.Infinite);
+            await Task.Delay(-1, _cancellationTokenSource.Token);
+        }
+
+        public void StopBot()
+        {
+            _cancellationTokenSource.Cancel();
+        }
+
+        public void Dispose()
+        {
+            _services.Dispose();
+            _cancellationTokenSource.Dispose();
+        }
+
+        private void ValidateConfig()
+        {
+            if (string.IsNullOrWhiteSpace(botConfig.Token))
+            {
+                throw new Exception("Token is missing from the config! Please enter the token.");
+            }
         }
 
         private ServiceProvider ConfigureServices()
         {
             return new ServiceCollection()
                 .AddSingleton<DiscordSocketClient>()
-                .AddSingleton< LoggingService>()
+                .AddSingleton<LoggingService>()
+                .AddSingleton<BotConfig>()
                 .BuildServiceProvider();
         }
     }
